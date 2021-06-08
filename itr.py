@@ -8,7 +8,7 @@ from timesformer.models.vit import TimeSformer
 
 
 class ITR(nn.Module):
-    def __init__(self):
+    def __init__(self, in_features=768*2, nb_classes=2, nb_layers=3):
         super(ITR, self).__init__()
         self.params_file = "/home/acances/Code/human_interaction_ITR/params/TimeSformer_divST_8x32_224_K400.pyth"
          
@@ -17,23 +17,37 @@ class ITR(nn.Module):
             attention_type='divided_space_time',
             pretrained_model=self.params_file
         )
+
+        self.in_features = in_features
+        self.nb_classes = nb_classes
+        self.nb_layers = nb_layers
+        feature_sizes = [self.in_features // 2**i for i in range(self.nb_layers)] + [self.nb_classes]
+        self.layers = nn.ModuleList([nn.Linear(feature_sizes[i], feature_sizes[i + 1]) for i in range(self.nb_layers)])
     
     def forward(self, input1, input2):
-        output1 = self.timesformer.model.forward_features(input1)
-        output2 = self.timesformer.model.forward_features(input2)
-        
-        return output1, output2
+        features1 = self.timesformer.model.forward_features(input1)
+        features2 = self.timesformer.model.forward_features(input2)
+
+        features1 = F.normalize(features1, p=2, dim=1)
+        features2 = F.normalize(features2, p=2, dim=1)
+
+        x = torch.cat((features1, features2), dim=1)
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(x))
+        x = self.layers[-1](x)
+
+        return x
 
 
 if __name__ == "__main__":
     model = ITR()
     model.cuda()
-    # print(model.size)
 
     torch.manual_seed(0)
     input1 = torch.rand(1, 3, 8, 224, 224).cuda()
     input2 = torch.rand(1, 3, 8, 224, 224).cuda()
 
-    output1, output2 = model(input1, input2)
-    print(output1.shape)
-    print(output2.shape)
+    output = model(input1, input2)
+    print(input1.shape)
+    print(output.shape)
+
